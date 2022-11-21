@@ -1,9 +1,10 @@
 using Pkg
-using TOML
 
 Pkg.activate("build")
 
 using PackageCompiler
+using TOML
+using ArgParse
 
 function interpolate(s::AbstractString, d::Dict)
     for (k, v) in d
@@ -60,4 +61,15 @@ function makeapp(arch)
     cd(originalDir)
 end
 
-makeapp("x86_64")
+s = ArgParseSettings()
+
+@add_arg_table s begin
+    "arch"
+        arg_type = String
+        help = "The architecture to build for"
+        default = "x86_64"
+end
+
+args = parse_args(ARGS, s; as_symbols=true)
+
+makeapp(args[:arch])
