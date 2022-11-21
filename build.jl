@@ -64,8 +64,7 @@ end
 s = ArgParseSettings()
 
 @add_arg_table s begin
-    "arch"
-        arg_type = String
+    "--arch"
         help = "The architecture to build for"
         default = "x86_64"
 end

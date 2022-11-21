@@ -24,13 +24,13 @@ end
 
 unknownVersionString = "unknown"
 
-function disable(args, sharedArgs;purge=false)
+function disable(args, sharedArgs;mode=:disable)
     store = joinpath(pwd(),sharedArgs[:store])
 
     file = joinpath(store, args[:appimage]*".AppImage")
     newfile = joinpath(store, args[:appimage]*".AppImage.disabled")
 
-    if purge
+    if mode==:purge || mode==:overwrite
         if isfile(file)
             rm(file)
         end
@@ -64,8 +64,10 @@ function disable(args, sharedArgs;purge=false)
         rm(link)
     end
 
-    if purge
+    if mode==:purge
         println("Purged AppImage $(args[:appimage]) in $store.")
+    elseif mode==:overwrite
+        println("Overwriting AppImage $(args[:appimage]) in $store.")
     else
         println("Disabled AppImage $(args[:appimage]) in $store.")
     end
@@ -81,7 +83,7 @@ function enable(args, sharedArgs)
         mv(file, newfile)
     end
 
-    integrate(merge(args,Dict(:appimage=>newfile)),sharedArgs)
+    complexIntegrate(merge(args,Dict(:appimage=>newfile)),sharedArgs;mode=:reenable)
 end
 
 function readDesktopSection(lines, name)
@@ -178,7 +180,67 @@ function removeExtracted(extracted)
     rm(d;recursive=true)
 end
 
-function integrate(args, sharedArgs; reenable=false)
+function integrate(store, targetPath, startPath, partial, terminal, template, dirIcon, iconPath, extracted, version; mode=:integrate)
+    if relpath(startPath, targetPath) != "."
+        mv(startPath, targetPath)
+    end
+
+    run(`chmod +x $targetPath`)
+    # make bin symlink
+    bindir = joinpath(store,"bin")
+    mkpath(bindir)
+    symlink(targetPath, joinpath(bindir,partial))
+
+    applications = joinpath(xdgdatahome(),"applications")
+    if !isdir(applications)
+        mkpath(applications)
+    end
+
+    if !terminal
+        write(joinpath(applications,"appimage-"*partial*".desktop"), template)
+        cp(dirIcon, iconPath; follow_symlinks=true)
+    end
+
+    writeCache(store, partial, CacheData(version))
+
+    removeExtracted(extracted)
+
+    if mode==:reenable
+        println("Re-integrated AppImage $partial in $store.")
+    elseif mode==:replacefailed
+        println("Failed to install existing AppImage $partial in $store; attempting to revert...")
+    else
+        println("Integrated AppImage $partial in $store.")
+    end
+end
+
+function list(args, sharedArgs)
+    store = joinpath(pwd(),sharedArgs[:store])
+    if !isdir(store)
+        mkpath(store)
+    end
+    appImages = filter(x->endswith(x,".AppImage.disabled")||endswith(x,".AppImage"),readdir(store))
+    if isempty(appImages)
+        println("No AppImages installed in $store.")
+        return
+    end
+    println("Installed AppImages in $store:")
+    for name in appImages
+        partial = replace(name,".AppImage.disabled"=>"",".AppImage"=>"")
+        cache = getCache(store, partial)
+        version = cacheversion(cache)
+        if endswith(name,".disabled")
+            printstyled(" $(strikethrough(partial)) ($version, disabled)\n"; color = :white)
+        else
+            printstyled(" $partial ($version)\n"; color = :green)
+        end
+    end
+end
+
+function complexIntegrate(args, sharedArgs; mode=:integrate)
+    overwrite = args[:overwrite]
+    store = joinpath(pwd(),sharedArgs[:store])
+
     store = joinpath(pwd(),sharedArgs[:store])
     if !isfile(store) && !isdir(store)
         mkpath(store)
@@ -236,57 +298,43 @@ function integrate(args, sharedArgs; reenable=false)
     iconPath = joinpath(iconStore,partial*iconExtension)
 
     template = makeDesktopTemplate(name, comment, targetPath, iconPath)*append*"\n"
+    
+    checkFailure = false
+    wasDisabled = false
 
-    if relpath(startPath, targetPath) != "."
-        mv(startPath, targetPath)
-    end
-
-    run(`chmod +x $targetPath`)
-    # make bin symlink
-    bindir = joinpath(store,"bin")
-    mkpath(bindir)
-    symlink(targetPath, joinpath(bindir,partial))
-
-    applications = joinpath(xdgdatahome(),"applications")
-    if !isdir(applications)
-        mkpath(applications)
-    end
-
-    if !terminal
-        write(joinpath(applications,"appimage-"*partial*".desktop"), template)
-        cp(dirIcon, iconPath; follow_symlinks=true)
-    end
-
-    writeCache(store, partial, CacheData(version))
-
-    removeExtracted(extracted)
-
-    if reenable
-        println("Re-integrated AppImage $partial in $store.")
-    else
-        println("Integrated AppImage $partial in $store.")
-    end
-end
-
-function list(args, sharedArgs)
-    store = joinpath(pwd(),sharedArgs[:store])
-    if !isdir(store)
-        mkpath(store)
-    end
-    appImages = filter(x->endswith(x,".AppImage.disabled")||endswith(x,".AppImage"),readdir(store))
-    if isempty(appImages)
-        println("No AppImages installed in $store.")
-        return
-    end
-    println("Installed AppImages in $store:")
-    for name in appImages
-        partial = replace(name,".AppImage.disabled"=>"",".AppImage"=>"")
-        cache = getCache(store, partial)
-        version = cacheversion(cache)
-        if endswith(name,".disabled")
-            printstyled(" $(strikethrough(partial)) ($version, disabled)\n"; color = :white)
+    if (isfile(targetPath) || isdir(targetPath*".disabled")) && relpath(startPath, targetPath) != "."
+        if !overwrite
+            println("AppImage $partial already exists in $store.")
+            return
+        end
+        if isfile(targetPath*".backup")
+            rm(targetPath*".backup")
+        end
+        if isfile(targetPath)
+            mv(targetPath, targetPath*".backup")
         else
-            printstyled(" $partial ($version)\n"; color = :green)
+            wasDisabled = true
+            mv(targetPath*".disabled", targetPath*".backup")
+        end
+        disable(merge(args,Dict(:appimage=>partial)),sharedArgs; mode=:overwrite)
+        checkFailure = true
+    end
+
+    try
+        integrate(store, targetPath, startPath, partial, terminal, template, dirIcon, iconPath, extracted, version; mode=mode)
+    catch e
+        if !checkFailure
+            throw(e)
+        end
+        @error "Something went wrong while installing AppImage $partial in $store:" exception=(e, catch_backtrace())
+        disable(merge(args,Dict(:appimage=>partial)),sharedArgs; mode=:overwrite)
+        mv(targetPath*".backup", targetPath)
+        integrate(store, targetPath, targetPath, partial, terminal, template, dirIcon, iconPath, extracted, version; mode=:replacefailed)
+        if wasDisabled
+            disable(merge(args,Dict(:appimage=>partial)),sharedArgs; mode=:disable)
+        end
+        if isfile(targetPath*".backup")
+            rm(targetPath*".backup")
         end
     end
 end
@@ -325,6 +373,9 @@ function main_cli()
         "appimage"
             help = "AppImage file to integrate"
             required = true
+        "--overwrite"
+            help = "Overwrite existing AppImage"
+            nargs = 0
     end
 
     @add_arg_table argsGlobal["enable"] begin
@@ -352,13 +403,13 @@ function main_cli()
     parsedGlobal = parse_args(ARGS, argsGlobal; as_symbols=true)
 
     if parsedGlobal[:_COMMAND_] == :integrate
-        integrate(parsedGlobal[:integrate], parsedGlobal)
+        complexIntegrate(parsedGlobal[:integrate], parsedGlobal)
     elseif parsedGlobal[:_COMMAND_] == :list
         list(parsedGlobal[:list], parsedGlobal)
     elseif parsedGlobal[:_COMMAND_] == :disable
         disable(parsedGlobal[:disable], parsedGlobal)
     elseif parsedGlobal[:_COMMAND_] == :purge
-        disable(parsedGlobal[:purge], parsedGlobal;purge=true)
+        disable(parsedGlobal[:purge], parsedGlobal;mode=:purge)
     elseif parsedGlobal[:_COMMAND_] == :enable
         enable(parsedGlobal[:enable], parsedGlobal)
     end
