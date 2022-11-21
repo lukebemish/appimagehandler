@@ -51,7 +51,11 @@ function makeapp(arch)
     end
     cd("build/artifacts")
 
-    run(`appimagetool ../out/ appimagehandler.AppImage`)
+    if isfile("appimagehandler_$arch.AppImage")
+        rm("appimagehandler_$arch.AppImage")
+    end
+
+    run(`appimagetool ../out/ appimagehandler_$arch.AppImage`)
 
     cd(originalDir)
 end

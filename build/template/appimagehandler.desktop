@@ -6,3 +6,6 @@ Comment=Tool to integrate and manage AppImages on the system
 Icon=appimagehandler
 Categories=Development;
 Terminal=true
+X-AppImage-Name=appimagehandler
+X-AppImage-Version=${version}
+X-AppImage-Arch=${arch}

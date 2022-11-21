@@ -196,7 +196,7 @@ function integrate(args, sharedArgs; reenable=false)
 
     dirIcon = joinpath(extracted,".DirIcon")
     desktop = filter(x->endswith(x,".desktop"),readdir(extracted))
-    partial = replace(filename,".AppImage"=>"")
+    partial = replace(filename,".AppImage"=>""," "=>"")
     iconExtension = ""
 
     name = partial
@@ -212,6 +212,7 @@ function integrate(args, sharedArgs; reenable=false)
         comment = name
         comment = something(readDesktopSection(lines,"Comment"), name)
         version = something(readDesktopSection(lines,"X-AppImage-Version"), version)
+        partial = replace(something(readDesktopSection(lines,"X-AppImage-Name"), partial), " "=>"")
         terminal = something(readDesktopSection(lines,"Terminal"), terminal)
         
         categories = filter(x->startswith(x,"Categories="),lines)
