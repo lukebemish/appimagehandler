@@ -11,12 +11,12 @@ function xdgdatahome()
     return xdgDataHome
 end
 
-function makeDesktopTemplate(name, comment, filepath, iconpath; terminal=false)
+function makeDesktopTemplate(name, comment, filepath, iconpath)
     return """
 [Desktop Entry]
 Name=$name
 Exec=$filepath
-Terminal=$terminal
+Terminal=false
 Type=Application
 Icon=$iconpath
 Comment=$comment"""
@@ -60,7 +60,7 @@ function disable(args, sharedArgs;purge=false)
         mv(file, newfile)
     end
 
-    if isfile(link)
+    if islink(link)
         rm(link)
     end
 
@@ -214,6 +214,9 @@ function integrate(args, sharedArgs; reenable=false)
         version = something(readDesktopSection(lines,"X-AppImage-Version"), version)
         partial = replace(something(readDesktopSection(lines,"X-AppImage-Name"), partial), " "=>"")
         terminal = something(readDesktopSection(lines,"Terminal"), terminal)
+        if terminal isa String
+            terminal = lowercase(terminal) == "true"
+        end
         
         categories = filter(x->startswith(x,"Categories="),lines)
         if length(categories)>0
@@ -232,7 +235,7 @@ function integrate(args, sharedArgs; reenable=false)
     targetPath = abspath(joinpath(store,partial*".AppImage"))
     iconPath = joinpath(iconStore,partial*iconExtension)
 
-    template = makeDesktopTemplate(name, comment, targetPath, iconPath; terminal=terminal)*append*"\n"
+    template = makeDesktopTemplate(name, comment, targetPath, iconPath)*append*"\n"
 
     if relpath(startPath, targetPath) != "."
         mv(startPath, targetPath)
@@ -249,8 +252,11 @@ function integrate(args, sharedArgs; reenable=false)
         mkpath(applications)
     end
 
-    write(joinpath(applications,"appimage-"*partial*".desktop"), template)
-    cp(dirIcon, iconPath; follow_symlinks=true)
+    if !terminal
+        write(joinpath(applications,"appimage-"*partial*".desktop"), template)
+        cp(dirIcon, iconPath; follow_symlinks=true)
+    end
+
     writeCache(store, partial, CacheData(version))
 
     removeExtracted(extracted)
