@@ -1,0 +1,7 @@
+name = "appimagehandler"
+uuid = "161d85ee-bc2c-4f72-96fc-6abe13a8da0b"
+authors = ["Luke Bemish <lukebemish@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
