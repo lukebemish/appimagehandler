@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=appimagehandler
+Exec=appimagehandler
+Comment=Tool to integrate and manage AppImages on the system
+Icon=appimagehandler
+Categories=Development;
+Terminal=true

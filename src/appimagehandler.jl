@@ -42,6 +42,7 @@ function disable(args, sharedArgs;purge=false)
 
     desktopfile = joinpath(xdgdatahome(), "applications","appimage-"*args[:appimage]*".desktop")
     icon = joinpath(store, "icons", args[:appimage])
+    link = joinpath(store, "bin", args[:appimage])
 
     if isfile(icon*".png")
         rm(icon*".png")
@@ -57,6 +58,10 @@ function disable(args, sharedArgs;purge=false)
 
     if isfile(file)
         mv(file, newfile)
+    end
+
+    if isfile(link)
+        rm(link)
     end
 
     if purge
@@ -198,6 +203,7 @@ function integrate(args, sharedArgs; reenable=false)
     comment = name
     append = ""
     version = unknownVersionString
+    terminal = false
     if length(desktop)>0
         partial = replace(desktop[1],".desktop"=>"")
         lines = split(read(joinpath(extracted,desktop[1]),String),"\n")
@@ -206,6 +212,7 @@ function integrate(args, sharedArgs; reenable=false)
         comment = name
         comment = something(readDesktopSection(lines,"Comment"), name)
         version = something(readDesktopSection(lines,"X-AppImage-Version"), version)
+        terminal = something(readDesktopSection(lines,"Terminal"), terminal)
         
         categories = filter(x->startswith(x,"Categories="),lines)
         if length(categories)>0
@@ -221,14 +228,20 @@ function integrate(args, sharedArgs; reenable=false)
         end
     end
 
-    targetPath = joinpath(store,partial*".AppImage")
+    targetPath = abspath(joinpath(store,partial*".AppImage"))
     iconPath = joinpath(iconStore,partial*iconExtension)
 
-    template = makeDesktopTemplate(name, comment, targetPath, iconPath)*append*"\n"
+    template = makeDesktopTemplate(name, comment, targetPath, iconPath; terminal=terminal)*append*"\n"
 
     if relpath(startPath, targetPath) != "."
         mv(startPath, targetPath)
     end
+
+    run(`chmod +x $targetPath`)
+    # make bin symlink
+    bindir = joinpath(store,"bin")
+    mkpath(bindir)
+    symlink(targetPath, joinpath(bindir,partial))
 
     applications = joinpath(xdgdatahome(),"applications")
     if !isdir(applications)
