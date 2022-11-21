@@ -22,8 +22,10 @@ Icon=$iconpath
 Comment=$comment"""
 end
 
-function disable(args;purge=false)
-    store = joinpath(pwd(),args[:store])
+unknownVersionString = "unknown"
+
+function disable(args, sharedArgs;purge=false)
+    store = joinpath(pwd(),sharedArgs[:store])
 
     file = joinpath(store, args[:appimage]*".AppImage")
     newfile = joinpath(store, args[:appimage]*".AppImage.disabled")
@@ -35,6 +37,7 @@ function disable(args;purge=false)
         if isfile(newfile)
             rm(newfile)
         end
+        removeCache(store, args[:appimage])
     end
 
     desktopfile = joinpath(xdgdatahome(), "applications","appimage-"*args[:appimage]*".desktop")
@@ -63,8 +66,8 @@ function disable(args;purge=false)
     end
 end
 
-function enable(args)
-    store = joinpath(pwd(),args[:store])
+function enable(args, sharedArgs)
+    store = joinpath(pwd(),sharedArgs[:store])
 
     newfile = joinpath(store, args[:appimage]*".AppImage")
     file = joinpath(store, args[:appimage]*".AppImage.disabled")
@@ -73,7 +76,7 @@ function enable(args)
         mv(file, newfile)
     end
 
-    integrate(merge(args,Dict(:appimage=>newfile)))
+    integrate(merge(args,Dict(:appimage=>newfile)),sharedArgs)
 end
 
 function readDesktopSection(lines, name)
@@ -89,6 +92,14 @@ struct CacheData
     version::String
 end
 
+function cacheversion(cache::CacheData)
+    cache.version
+end
+
+function cacheversion(cache::Nothing)
+    unknownVersionString
+end
+
 function getCache(store, partial)
     cacheDir = joinpath(store, "cache")
     if !isdir(cacheDir)
@@ -97,11 +108,14 @@ function getCache(store, partial)
 
     cacheFile = joinpath(cacheDir, partial*".cache")
     
-    text = read(cacheFile, String)
+    if !isfile(cacheFile)
+        return nothing
+    end
 
+    text = read(cacheFile, String)
     err = TOML.tryparse(text)
 
-    if err <: TOML.ParserError
+    if err isa TOML.ParserError
         return nothing
     else
         return CacheData(err["version"])
@@ -150,8 +164,17 @@ function extractAndRead(appImageFile)
     return outpath
 end
 
-function integrate(args; reenable=false)
-    store = joinpath(pwd(),args[:store])
+function removeExtracted(extracted)
+    startdir = pwd()
+    cd(extracted)
+    cd("../")
+    d = pwd()
+    cd(startdir)
+    rm(d;recursive=true)
+end
+
+function integrate(args, sharedArgs; reenable=false)
+    store = joinpath(pwd(),sharedArgs[:store])
     if !isfile(store) && !isdir(store)
         mkpath(store)
     end
@@ -174,21 +197,17 @@ function integrate(args; reenable=false)
     name = partial
     comment = name
     append = ""
+    version = unknownVersionString
     if length(desktop)>0
         partial = replace(desktop[1],".desktop"=>"")
         lines = split(read(joinpath(extracted,desktop[1]),String),"\n")
 
-        fname = readDesktopSection(lines,"Name")
-        fcomment = readDesktopSection(lines,"Comment")
-        categories = filter(x->startswith(x,"Categories="),lines)
+        name = something(readDesktopSection(lines,"Name"), name)
+        comment = name
+        comment = something(readDesktopSection(lines,"Comment"), name)
+        version = something(readDesktopSection(lines,"X-AppImage-Version"), version)
         
-        if fname !== nothing
-            name = fname
-            comment = name
-        end
-        if fcomment !== nothing
-            comment = fcomment
-        end
+        categories = filter(x->startswith(x,"Categories="),lines)
         if length(categories)>0
             append *= "\n$(categories[1])"
         end
@@ -217,10 +236,10 @@ function integrate(args; reenable=false)
     end
 
     write(joinpath(applications,"appimage-"*partial*".desktop"), template)
-
     cp(dirIcon, iconPath; follow_symlinks=true)
+    writeCache(store, partial, CacheData(version))
 
-    rm(mountpoint; recursive=true)
+    removeExtracted(extracted)
 
     if reenable
         println("Re-integrated AppImage $partial in $store.")
@@ -229,24 +248,42 @@ function integrate(args; reenable=false)
     end
 end
 
-function list(args)
-    store = joinpath(pwd(),args[:store])
+function list(args, sharedArgs)
+    store = joinpath(pwd(),sharedArgs[:store])
+    if !isdir(store)
+        mkpath(store)
+    end
     appImages = filter(x->endswith(x,".AppImage.disabled")||endswith(x,".AppImage"),readdir(store))
+    if isempty(appImages)
+        println("No AppImages installed in $store.")
+        return
+    end
     println("Installed AppImages in $store:")
     for name in appImages
+        partial = replace(name,".AppImage.disabled"=>"",".AppImage"=>"")
+        cache = getCache(store, partial)
+        version = cacheversion(cache)
         if endswith(name,".disabled")
-            printstyled(" (disabled) $(replace(name,".AppImage.disabled"=>""))\n"; color = :white)
+            printstyled(" $(strikethrough(partial)) ($version, disabled)\n"; color = :white)
         else
-            printstyled(" $(replace(name,".AppImage"=>""))\n"; color = :green)
+            printstyled(" $partial ($version)\n"; color = :green)
         end
     end
+end
+
+function strikethrough(text)
+    return "\e[9m$text\e[0m"
 end
 
 function main_cli()
     defaultStore = joinpath(homedir(),".opt/appimagehandler")
 
     argsGlobal = ArgParseSettings()
+    
     @add_arg_table argsGlobal begin
+        "--store"
+            help = "AppImage storage location"
+            default = defaultStore
         "integrate"
             help = "Integrate an AppImage into the system"
             action = :command
@@ -268,39 +305,24 @@ function main_cli()
         "appimage"
             help = "AppImage file to integrate"
             required = true
-        "--store"
-            help = "AppImage storage location"
-            default = defaultStore
     end
 
     @add_arg_table argsGlobal["enable"] begin
         "appimage"
             help = "AppImage to enable"
             required = true
-        "--store"
-            help = "AppImage storage location"
-            default = defaultStore
     end
 
     @add_arg_table argsGlobal["list"] begin
-        "--store"
-            help = "AppImage storage location"
-            default = defaultStore
     end
 
     @add_arg_table argsGlobal["disable"] begin
-        "--store"
-            help = "AppImage storage location"
-            default = defaultStore
         "appimage"
             help = "AppImage to disable"
             required = true
     end
 
     @add_arg_table argsGlobal["purge"] begin
-        "--store"
-            help = "AppImage storage location"
-            default = defaultStore
         "appimage"
             help = "AppImage to purge"
             required = true
@@ -310,15 +332,15 @@ function main_cli()
     parsedGlobal = parse_args(ARGS, argsGlobal; as_symbols=true)
 
     if parsedGlobal[:_COMMAND_] == :integrate
-        integrate(parsedGlobal[:integrate])
+        integrate(parsedGlobal[:integrate], parsedGlobal)
     elseif parsedGlobal[:_COMMAND_] == :list
-        list(parsedGlobal[:list])
+        list(parsedGlobal[:list], parsedGlobal)
     elseif parsedGlobal[:_COMMAND_] == :disable
-        disable(parsedGlobal[:disable])
+        disable(parsedGlobal[:disable], parsedGlobal)
     elseif parsedGlobal[:_COMMAND_] == :purge
-        disable(parsedGlobal[:purge];purge=true)
+        disable(parsedGlobal[:purge], parsedGlobal;purge=true)
     elseif parsedGlobal[:_COMMAND_] == :enable
-        enable(parsedGlobal[:enable])
+        enable(parsedGlobal[:enable], parsedGlobal)
     end
 
     return Int32(0)
