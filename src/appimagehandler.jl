@@ -344,6 +344,12 @@ function strikethrough(text)
 end
 
 function main_cli()
+    nodesktopintegration = joinpath(homedir(),".local/share/appimagekit/no_desktopintegration")
+    if !isfile(nodesktopintegration)
+        mkpath(dirname(nodesktopintegration))
+        touch(nodesktopintegration)
+    end
+
     defaultStore = joinpath(homedir(),".opt/appimagehandler")
 
     argsGlobal = ArgParseSettings()
