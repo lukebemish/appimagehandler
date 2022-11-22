@@ -40,7 +40,7 @@ function makeapp(arch)
     end
 
     # grab license
-    cp("../../LICENSE.md","./")
+    cp("../../LICENSE.md","./LICENSE.md")
 
     # process desktop file
     replacements = Dict("version"=>version,"arch"=>arch)
@@ -58,8 +58,11 @@ function makeapp(arch)
     if isfile("appimagehandler_$arch.AppImage")
         rm("appimagehandler_$arch.AppImage")
     end
+    if isfile("appimagehandler_$arch.AppImage.zsync")
+        rm("appimagehandler_$arch.AppImage.zsync")
+    end
 
-    run(`appimagetool ../out/ appimagehandler_$arch.AppImage -u gh-releases-zsync|lukebemish|appimagehandler|latest|appimagehandler_$arch.AppImage.zsync`)
+    run(`appimagetool ../out/ appimagehandler_$arch.AppImage -u "gh-releases-zsync|lukebemish|appimagehandler|latest|appimagehandler_$arch.AppImage.zsync"`)
 
     run(`zsyncmake -C appimagehandler_$arch.AppImage -u appimagehandler_$arch.AppImage`)
 
@@ -70,9 +73,15 @@ s = ArgParseSettings()
 
 @add_arg_table s begin
     "--arch"
-        help = "The architecture to build for"
+        help = "The architecture to build for; if not specified, all architectures will be built"
+        required = false
 end
 
 args = parse_args(ARGS, s; as_symbols=true)
 
-makeapp(args[:arch])
+if args[:arch] === nothing
+    makeapp("x86_64")
+    makeapp("i386")
+else
+    makeapp(args.arch)
+end
