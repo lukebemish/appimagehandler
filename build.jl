@@ -39,6 +39,9 @@ function makeapp(arch)
         cp(joinpath("../template",file),joinpath("./",file))
     end
 
+    # grab license
+    cp("../../LICENSE.md","./")
+
     # process desktop file
     replacements = Dict("version"=>version,"arch"=>arch)
     desktop = read("appimagehandler.desktop",String)
@@ -56,7 +59,9 @@ function makeapp(arch)
         rm("appimagehandler_$arch.AppImage")
     end
 
-    run(`appimagetool ../out/ appimagehandler_$arch.AppImage`)
+    run(`appimagetool ../out/ appimagehandler_$arch.AppImage -u gh-releases-zsync|lukebemish|appimagehandler|latest|appimagehandler_$arch.AppImage.zsync`)
+
+    run(`zsyncmake -C appimagehandler_$arch.AppImage -u appimagehandler_$arch.AppImage`)
 
     cd(originalDir)
 end
@@ -66,7 +71,6 @@ s = ArgParseSettings()
 @add_arg_table s begin
     "--arch"
         help = "The architecture to build for"
-        default = "x86_64"
 end
 
 args = parse_args(ARGS, s; as_symbols=true)
