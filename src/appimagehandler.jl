@@ -68,7 +68,7 @@ function disable(args, sharedArgs;mode=:disable)
         println("Purged AppImage $(args[:appimage]) in $store.")
     elseif mode==:overwrite
         println("Overwriting AppImage $(args[:appimage]) in $store.")
-    else
+    elseif mode==:disable
         println("Disabled AppImage $(args[:appimage]) in $store.")
     end
 end
@@ -209,6 +209,8 @@ function integrate(store, targetPath, startPath, partial, terminal, template, di
         println("Re-integrated AppImage $partial in $store.")
     elseif mode==:replacefailed
         println("Failed to install existing AppImage $partial in $store; attempting to revert...")
+    elseif mode==:update
+        println("Re-integrated updated AppImage $partial in $store.")
     else
         println("Integrated AppImage $partial in $store.")
     end
@@ -339,6 +341,33 @@ function complexIntegrate(args, sharedArgs; mode=:integrate)
     end
 end
 
+function update(args, sharedArgs)
+    store = joinpath(pwd(),sharedArgs[:store])
+    if !isdir(store)
+        mkpath(store)
+    end
+    appImages = [replace(i,".AppImage"=>"") for i in filter(x->endswith(x,".AppImage"),readdir(store))]
+    if !("appimageupdatetool" in appImages)
+        @error "appimageupdatetool is not installed or is disabled; cannot update AppImages."
+    end
+
+    partial = args[:appimage]
+    disable(merge(args,Dict(:appimage=>partial)),sharedArgs; mode=:update)
+    if isfile(joinpath(store,partial*".AppImage.disabled"))
+        mv(joinpath(store,partial*".AppImage.disabled"), joinpath(store,partial*".AppImage"))
+    end
+    original = pwd()
+    cd(store)
+    try
+        run(`./appimageupdatetool.AppImage $partial.AppImage -O`)
+    catch e
+        @error "Something went wrong while updating AppImage $partial in $store; attempting to install as-is:"
+    end
+    complexIntegrate(merge(args,Dict(:appimage=>partial*".AppImage",:overwrite=>false)),sharedArgs; mode=:update)
+
+    cd(original)
+end
+
 function strikethrough(text)
     return "\e[9m$text\e[0m"
 end
@@ -373,6 +402,9 @@ function main_cli()
         "purge"
             help = "Remove installed AppImage completely"
             action = :command
+        "update"
+            help = "Update an installed AppImage"
+            action = :command
     end
 
     @add_arg_table argsGlobal["integrate"] begin
@@ -405,6 +437,12 @@ function main_cli()
             required = true
     end
 
+    @add_arg_table argsGlobal["update"] begin
+        "appimage"
+            help = "AppImage to update"
+            required = true
+    end
+
 
     parsedGlobal = parse_args(ARGS, argsGlobal; as_symbols=true)
 
@@ -418,6 +456,8 @@ function main_cli()
         disable(parsedGlobal[:purge], parsedGlobal;mode=:purge)
     elseif parsedGlobal[:_COMMAND_] == :enable
         enable(parsedGlobal[:enable], parsedGlobal)
+    elseif parsedGlobal[:_COMMAND_] == :update
+        update(parsedGlobal[:update], parsedGlobal)
     end
 
     return Int32(0)
