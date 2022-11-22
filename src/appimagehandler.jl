@@ -24,6 +24,8 @@ end
 
 unknownVersionString = "unknown"
 
+defaultIntegrateDict = Dict(:overwrite=>false)
+
 function disable(args, sharedArgs;mode=:disable)
     store = joinpath(pwd(),sharedArgs[:store])
 
@@ -83,7 +85,7 @@ function enable(args, sharedArgs)
         mv(file, newfile)
     end
 
-    complexIntegrate(merge(args,Dict(:appimage=>newfile)),sharedArgs;mode=:reenable)
+    complexIntegrate(merge(defaultIntegrateDict,args,Dict(:appimage=>newfile)),sharedArgs;mode=:reenable)
 end
 
 function readDesktopSection(lines, name)
@@ -363,7 +365,7 @@ function update(args, sharedArgs)
     catch e
         @error "Something went wrong while updating AppImage $partial in $store; attempting to install as-is:"
     end
-    complexIntegrate(merge(args,Dict(:appimage=>partial*".AppImage",:overwrite=>false)),sharedArgs; mode=:update)
+    complexIntegrate(merge(defaultIntegrateDict,args,Dict(:appimage=>partial*".AppImage")),sharedArgs; mode=:update)
 
     cd(original)
 end
